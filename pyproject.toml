@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "masif"
+description = "Modernized MaSIF: geometric deep learning over protein molecular surfaces."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "LPDI / EPFL (original), modernized" }]
+dynamic = ["version"]
+
+dependencies = [
+    "numpy>=1.22",
+    "scipy>=1.8",
+    "scikit-learn>=1.1",
+    "trimesh>=3.15",
+    "scikit-image>=0.19",
+    "biopython>=1.79",
+    "torch>=1.13",
+]
+
+[project.optional-dependencies]
+# edt is a faster exact-distance-transform for surface generation (optional;
+# scipy is used as a fallback).
+fast = ["edt>=2.0"]
+dev = ["pytest>=7", "pytest-cov>=3"]
+
+[project.urls]
+Homepage = "https://github.com/LPDI-EPFL/masif"
+
+[project.scripts]
+masif = "masif.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "masif.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
