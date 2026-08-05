@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 from pathlib import Path
@@ -11,7 +12,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from masif.config import TrainConfig
+from masif.config import ModelConfig, TrainConfig
 from masif.models.masif_site import MaSIFSite
 from masif.patches import ProteinPatches, build_batch
 
@@ -32,20 +33,20 @@ def _eval_full(
     device: torch.device,
     feat_mask,
 ) -> np.ndarray:
-    """Interface scores for every vertex of a protein (all vertices in one batch)."""
+    """Interface scores for every vertex of a protein."""
     import torch as t
 
     x = patches.input_feat
     if int(np.asarray(feat_mask).sum()) < 5:
         keep = np.where(np.asarray(feat_mask) > 0)[0]
         x = x[:, :, keep]
-    rho = t.from_numpy(patches.rho).to(device)
-    theta = t.from_numpy(patches.theta).to(device)
-    mask = t.from_numpy(patches.mask).to(device)
-    x = t.from_numpy(x).to(device)
-    indices = t.from_numpy(patches.indices).to(device)
     with t.no_grad():
         model.eval()
+        x = t.from_numpy(x).to(device)
+        rho = t.from_numpy(patches.rho).to(device)
+        theta = t.from_numpy(patches.theta).to(device)
+        mask = t.from_numpy(patches.mask).to(device)
+        indices = t.from_numpy(patches.indices).to(device)
         scores = model.score(x, rho, theta, mask, indices).cpu().numpy()
     return scores
 
@@ -53,47 +54,48 @@ def _eval_full(
 def train(
     model: MaSIFSite,
     files: List[Path],
-    cfg: TrainConfig,
+    model_cfg: ModelConfig,
+    train_cfg: TrainConfig,
     device: torch.device,
     out_dir: Path,
 ) -> dict:
-    """Train ``model`` over precomputed proteins for ``cfg.epochs`` epochs.
+    """Train ``model`` over precomputed proteins for ``train_cfg.epochs`` epochs.
 
     * One optimizer step is taken per protein on a balanced subset of its interface /
       non-interface vertices (mirroring the original per-protein batching).
     * ``val_fraction`` of proteins are held out; the checkpoint with the best mean
       validation AUC is saved together with a JSON history.
     """
-    rng = random.Random(cfg.seed)
+    rng = random.Random(train_cfg.seed)
     files = list(files)
     rng.shuffle(files)
-    n_val = max(1, int(len(files) * cfg.val_fraction))
+    n_val = max(1, int(len(files) * train_cfg.val_fraction))
     val_files = files[:n_val]
     train_files = files[n_val:]
 
     model.to(device)
     optimizer = torch.optim.Adam(
-        model.parameters(), lr=cfg.model.learning_rate, weight_decay=cfg.model.weight_decay
+        model.parameters(), lr=model_cfg.learning_rate, weight_decay=model_cfg.weight_decay
     )
     loss_fn = nn.BCEWithLogitsLoss()
 
     best_val_auc = -1.0
     history = []
 
-    for epoch in range(cfg.epochs):
+    for epoch in range(train_cfg.epochs):
         model.train()
         running_loss = 0.0
         n_steps = 0
         for f in train_files:
             patches = ProteinPatches.load(f)
-            if len(patches.labels) > cfg.max_vertices:
+            if len(patches.labels) > train_cfg.max_vertices:
                 continue
             if (
-                patches.labels.sum() > cfg.max_pos_frac * len(patches.labels)
-                or patches.labels.sum() < cfg.min_pos_vertices
+                patches.labels.sum() > train_cfg.max_pos_frac * len(patches.labels)
+                or patches.labels.sum() < train_cfg.min_pos_vertices
             ):
                 continue
-            batch = build_batch(patches, cfg.batch_size, seed=epoch * 1000 + n_steps)
+            batch = build_batch(patches, train_cfg.batch_size, seed=epoch * 1000 + n_steps)
             x = batch["input_feat"].to(device)
             rho = batch["rho"].to(device)
             theta = batch["theta"].to(device)
@@ -115,7 +117,7 @@ def train(
         all_labels, all_scores = [], []
         for f in val_files:
             patches = ProteinPatches.load(f)
-            scores = _eval_full(model, patches, device, cfg.model.feat_mask)
+            scores = _eval_full(model, patches, device, model_cfg.feat_mask)
             all_labels.append(patches.labels)
             all_scores.append(scores)
             val_aucs.append(_auc(patches.labels, scores))
@@ -126,7 +128,7 @@ def train(
 
         logger.info(
             "epoch %d/%d loss=%.4f mean_val_auc=%.4f pooled_val_auc=%.4f",
-            epoch + 1, cfg.epochs, running_loss / max(n_steps, 1), mean_val, pooled_auc,
+            epoch + 1, train_cfg.epochs, running_loss / max(n_steps, 1), mean_val, pooled_auc,
         )
         history.append(
             {

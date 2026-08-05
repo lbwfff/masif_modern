@@ -118,7 +118,7 @@ def cmd_train(args) -> None:
         feat_mask=list(cfg.model.feat_mask),
     )
     out_dir = Path(cfg.paths.root) / cfg.paths.model_dir
-    train(model, files, cfg.train, device, out_dir)
+    train(model, files, cfg.model, cfg.train, device, out_dir)
 
 
 def cmd_predict(args) -> None:

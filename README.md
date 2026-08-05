@@ -93,6 +93,23 @@ tests/                   unit tests (polar coords, features, model)
 pytest
 ```
 
+## Testing status
+
+* `masif prepare` — **tested** on single-chain (1MBN_A) and two-chain complexes (1AKJ_AB_DE);
+  produces valid `.ply` surfaces and `.npz` patches with correct tensor shapes, value
+  ranges, and no NaN.
+* `masif train` — **not yet tested end-to-end**. The training loop (`trainer.py`) is a
+  faithful port but has not been run on real data yet. Known limitations to watch for:
+  BCE loss and per-protein balanced sampling are implemented; the original ranking loss
+  is not.
+* `masif predict` — **not yet tested end-to-end**. The prediction path (`_eval_full`) now
+  loops over Gaussian-rotation iterations to avoid materialising the full `(B, R, V, G)`
+  tensor; this is memory-safe but slower than a fully vectorised version.
+* `masif color` — **not yet tested**.
+
+Before relying on any of the untested commands, spot-check a small dataset (2–3 complexes)
+and inspect `history.json` / prediction AUCs.
+
 ## Scope & caveats
 
 * **Surface** is a solvent-accessible surface (vdW + probe), an approximation of the

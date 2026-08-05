@@ -139,11 +139,14 @@ class GeodesicConv(nn.Module):
     def _single_channel(
         self, x: torch.Tensor, grid: GaussianGrid, linear: nn.Linear, rho, theta, mask
     ) -> torch.Tensor:
-        act = grid.activations(rho, theta, mask, self.rotations)  # (B, R, V, G)
-        gd = torch.einsum("brvg,bv->brg", act, x)  # (B, R, G)
-        gd = linear(gd)
-        gd = torch.relu(gd)
-        return gd.amax(dim=1)  # rotation-invariant max-pool
+        all_conv = []
+        for rot in self.rotations:
+            act = grid.activations(rho, theta, mask, rot[None])  # (B, 1, V, G)
+            gd = torch.einsum("brvg,bv->brg", act, x).squeeze(1)  # (B, G)
+            gd = linear(gd)
+            gd = torch.relu(gd)
+            all_conv.append(gd)
+        return torch.stack(all_conv, dim=1).amax(dim=1)  # rotation-invariant max-pool
 
     def forward(self, x, rho, theta, mask) -> torch.Tensor:
         """Map ``(B, V, C)`` patch features to descriptors.
@@ -160,10 +163,13 @@ class GeodesicConv(nn.Module):
             ]
             return torch.cat(outs, dim=1)
 
-        act = self.grid.activations(rho, theta, mask, self.rotations)  # (B, R, V, G)
-        gd = torch.einsum("brvg,bvc->brcg", act, x)  # (B, R, C, G)
-        B = gd.shape[0]
-        gd = gd.reshape(B, self.n_rotations, self.in_channels * self.n_gauss)
-        out = self.linear(gd)
-        out = torch.relu(out)
-        return out.amax(dim=1)  # (B, C*G), rotation-invariant
+        B = x.shape[0]
+        all_conv = []
+        for rot in self.rotations:
+            act = self.grid.activations(rho, theta, mask, rot[None])  # (B, 1, V, G)
+            gd = torch.einsum("brvg,bvc->brcg", act, x).squeeze(1)  # (B, C, G)
+            gd = gd.reshape(B, self.in_channels * self.n_gauss)
+            gd = self.linear(gd)
+            gd = torch.relu(gd)
+            all_conv.append(gd)
+        return torch.stack(all_conv, dim=1).amax(dim=1)  # (B, C*G), rotation-invariant
